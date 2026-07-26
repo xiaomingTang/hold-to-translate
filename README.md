@@ -112,7 +112,9 @@ It runs automatically when:
 The workflow:
 
 - builds `dist/HoldToTranslate.app` with `INSTALL_TO_APPLICATIONS=0`
-- uploads both the `.app` bundle and a zipped artifact for download
+- uploads both the `.app` bundle and a zipped artifact to the Actions run
+- creates or updates a GitHub Release named after the branch suffix such as `v1.8.0`
+- uploads `dist/HoldToTranslate.zip` to that GitHub Release
 
 ## Troubleshooting
 
