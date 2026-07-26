@@ -1,0 +1,74 @@
+name: Release Build
+
+on:
+  push:
+    branches:
+      - release/**
+  create:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.event_name != 'create' || (github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/'))
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: release_meta
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_REF: ${{ github.event.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "create" ]]; then
+            branch_name="$EVENT_REF"
+          else
+            branch_name="$REF_NAME"
+          fi
+
+          version="${branch_name#release/}"
+          tag_name="$version"
+
+          echo "branch_name=$branch_name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+
+      - name: Show toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build app bundle
+        env:
+          INSTALL_TO_APPLICATIONS: 0
+          FAIL_ON_UNSIGNED: 0
+        run: ./scripts/build_app.sh
+
+      - name: Archive app bundle
+        run: ditto -c -k --sequesterRsrc --keepParent dist/HoldToTranslate.app dist/HoldToTranslate.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoldToTranslate-release-build
+          path: |
+            dist/HoldToTranslate.app
+            dist/HoldToTranslate.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_meta.outputs.tag_name }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.release_meta.outputs.version }}
+          generate_release_notes: true
+          files: dist/HoldToTranslate.zip
+          fail_on_unmatched_files: true

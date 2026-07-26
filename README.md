@@ -16,7 +16,7 @@ Select text in other apps, hold a configured mouse button, and it will read the 
 ## Requirements
 
 - macOS 14+
-- Swift 6.3 toolchain
+- Swift 6.1+ toolchain
 
 ## Project Structure
 
@@ -98,6 +98,23 @@ FAIL_ON_UNSIGNED=1 ./scripts/build_app.sh
 ```bash
 swift test
 ```
+
+## GitHub CI
+
+This repository includes a GitHub Actions workflow at `.github/workflows/release-build.yml`.
+
+It runs automatically when:
+
+- code is pushed to a `release/*` branch such as `release/v1.8.0`
+- a `release/*` branch is created on GitHub
+- the workflow is started manually from the Actions tab
+
+The workflow:
+
+- builds `dist/HoldToTranslate.app` with `INSTALL_TO_APPLICATIONS=0`
+- uploads both the `.app` bundle and a zipped artifact to the Actions run
+- creates or updates a GitHub Release named after the branch suffix such as `v1.8.0`
+- uploads `dist/HoldToTranslate.zip` to that GitHub Release
 
 ## Troubleshooting
 
