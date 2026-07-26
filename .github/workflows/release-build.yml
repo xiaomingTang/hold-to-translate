@@ -1,0 +1,41 @@
+name: Release Build
+
+on:
+  push:
+    branches:
+      - release/**
+  create:
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.event_name != 'create' || (github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/'))
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Show toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build app bundle
+        env:
+          INSTALL_TO_APPLICATIONS: 0
+          FAIL_ON_UNSIGNED: 0
+        run: ./scripts/build_app.sh
+
+      - name: Archive app bundle
+        run: ditto -c -k --sequesterRsrc --keepParent dist/HoldToTranslate.app dist/HoldToTranslate.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoldToTranslate-release-build
+          path: |
+            dist/HoldToTranslate.app
+            dist/HoldToTranslate.zip
+          if-no-files-found: error
+          retention-days: 14

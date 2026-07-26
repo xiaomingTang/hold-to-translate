@@ -99,6 +99,21 @@ FAIL_ON_UNSIGNED=1 ./scripts/build_app.sh
 swift test
 ```
 
+## GitHub CI
+
+This repository includes a GitHub Actions workflow at `.github/workflows/release-build.yml`.
+
+It runs automatically when:
+
+- code is pushed to a `release/*` branch such as `release/v1.8.0`
+- a `release/*` branch is created on GitHub
+- the workflow is started manually from the Actions tab
+
+The workflow:
+
+- builds `dist/HoldToTranslate.app` with `INSTALL_TO_APPLICATIONS=0`
+- uploads both the `.app` bundle and a zipped artifact for download
+
 ## Troubleshooting
 
 ### Cannot read selected text
