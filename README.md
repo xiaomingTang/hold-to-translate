@@ -16,7 +16,7 @@ Select text in other apps, hold a configured mouse button, and it will read the 
 ## Requirements
 
 - macOS 14+
-- Swift 6.3 toolchain
+- Swift 6.1+ toolchain
 
 ## Project Structure
 
