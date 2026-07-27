@@ -1705,9 +1705,15 @@ final class TranslationAppState: NSObject, ObservableObject {
   }
 
   func submitEditedOriginal(_ text: String) {
-    windowState.draft?.editText = text
+    let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedText.isEmpty else {
+      cancelEditing()
+      return
+    }
+
+    windowState.draft?.editText = trimmedText
     windowState.commitEditing()
-    startTranslation(for: text)
+    startTranslation(for: trimmedText)
   }
 
   func closeTranslationWindowIfAllowed() {
