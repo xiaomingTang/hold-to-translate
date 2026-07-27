@@ -6,6 +6,10 @@ import SwiftUI
 
 private let axTrustedCheckOptionPromptKey = "AXTrustedCheckOptionPrompt"
 
+extension Notification.Name {
+    static let requestOpenMainPanel = Notification.Name("requestOpenMainPanel")
+}
+
 private let integerInputFormatter: NumberFormatter = {
     let formatter = NumberFormatter()
     formatter.numberStyle = .none
@@ -17,6 +21,12 @@ private let integerInputFormatter: NumberFormatter = {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        NotificationCenter.default.post(name: .requestOpenMainPanel, object: nil)
+        // We handle reopen ourselves to avoid AppKit's default reopen creating duplicate windows.
+        return false
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -1063,13 +1073,8 @@ struct HoldToTranslateApp: App {
     @StateObject private var appState = TranslationAppState()
 
     var body: some Scene {
-        WindowGroup("Hold to Translate", id: "main") {
-            LaunchControlView(state: appState)
-        }
-        .defaultSize(width: 560, height: 420)
-
-        MenuBarExtra("Hold to Translate", systemImage: "text.magnifyingglass") {
-            MenuBarView(state: appState)
+        Settings {
+            EmptyView()
         }
     }
 }
@@ -1235,15 +1240,159 @@ struct LaunchControlView: View {
         }
         .padding(20)
         .onAppear {
-            state.bootstrapOnLaunch()
-            state.refreshAccessibilityStatus()
             state.refreshLoginItemStatus()
         }
     }
 }
 
+final class MainPanelController: NSWindowController, NSWindowDelegate {
+    private unowned let appState: TranslationAppState
+
+    init(appState: TranslationAppState) {
+        self.appState = appState
+
+        let hostingView = NSHostingView(rootView: LaunchControlView(state: appState))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 420),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Hold to Translate"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = false
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.contentView = hostingView
+
+        super.init(window: window)
+
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func showAndFocus() {
+        guard let window else { return }
+
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+
+        NSApp.setActivationPolicy(.regular)
+        NSApp.unhide(nil)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+        NSApp.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        NSApp.setActivationPolicy(.accessory)
+        sender.orderOut(nil)
+        return false
+    }
+}
+
 @MainActor
-final class TranslationAppState: ObservableObject {
+final class StatusItemController: NSObject {
+    private unowned let appState: TranslationAppState
+    private let statusItem: NSStatusItem
+    private let menu = NSMenu()
+    private(set) var isMenuOpen = false
+
+    init(appState: TranslationAppState) {
+        self.appState = appState
+        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        super.init()
+        configureStatusItem()
+        configureMenu()
+    }
+
+    private func configureStatusItem() {
+        guard let button = statusItem.button else { return }
+        button.image = appState.statusBarIcon
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.target = self
+        button.action = #selector(handleStatusItemClick(_:))
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    }
+
+    private func configureMenu() {
+        menu.delegate = self
+    }
+
+    @objc
+    private func handleStatusItemClick(_ sender: Any?) {
+        let event = NSApp.currentEvent
+        let isRightClick = event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true
+
+        if isRightClick {
+            showMenu()
+        } else {
+            appState.openOrFocusMainPanel()
+        }
+    }
+
+    private func showMenu() {
+        menu.removeAllItems()
+
+        let accessibilityItem = NSMenuItem(
+            title: "辅助功能：\(appState.accessibilityStatus.displayName)",
+            action: nil,
+            keyEquivalent: ""
+        )
+        accessibilityItem.isEnabled = false
+        menu.addItem(accessibilityItem)
+        menu.addItem(.separator())
+
+        let openItem = NSMenuItem(title: "打开主面板", action: #selector(handleOpenMainPanel), keyEquivalent: "")
+        openItem.target = self
+        menu.addItem(openItem)
+
+        let quitItem = NSMenuItem(title: "退出", action: #selector(handleQuit), keyEquivalent: "")
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+    }
+
+    @objc
+    private func handleOpenMainPanel() {
+        appState.openOrFocusMainPanel()
+    }
+
+    @objc
+    private func handleQuit() {
+        NSApp.terminate(nil)
+    }
+}
+
+extension StatusItemController: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        isMenuOpen = true
+        menu.items.forEach { item in
+            if item.title.hasPrefix("辅助功能：") {
+                item.title = "辅助功能：\(appState.accessibilityStatus.displayName)"
+            }
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        isMenuOpen = false
+        statusItem.menu = nil
+    }
+}
+
+@MainActor
+final class TranslationAppState: NSObject, ObservableObject {
+    static weak var shared: TranslationAppState?
+
     @Published var settings = TranslationSettings() {
         didSet {
             holdMonitor.configure(
@@ -1276,6 +1425,9 @@ final class TranslationAppState: ObservableObject {
     private var preCaptureAt: Date?
     private var pinnedEscapeFirstPressedAt: Date?
     private var panelController: TranslationPanelController?
+    private var mainPanelController: MainPanelController?
+    private var statusItemController: StatusItemController?
+    private var accessibilityStatusRefreshWorkItem: DispatchWorkItem?
 
     init(
         permissionService: AccessibilityPermissionService = .init(),
@@ -1295,10 +1447,14 @@ final class TranslationAppState: ObservableObject {
         self.keychainStore = keychainStore
         self.accessibilityStatus = permissionService.currentStatus()
         self.settings = settingsStore.loadSettings()
+        super.init()
+        Self.shared = self
+
         self.holdMonitor.configure(
             triggerButton: settings.triggerButton,
             minimumHoldDuration: settings.longPressMilliseconds / 1000
         )
+
         self.holdMonitor.onTriggered = { [weak self] in
             Task { @MainActor in
                 self?.handleLongPressTrigger()
@@ -1309,8 +1465,83 @@ final class TranslationAppState: ObservableObject {
                 self?.captureSelectionOnPressBegan()
             }
         }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRequestOpenMainPanelNotification),
+            name: .requestOpenMainPanel,
+            object: nil
+        )
         self.holdMonitor.start()
         self.loginAtLaunchEnabled = isLoginItemEnabled()
+        self.statusItemController = StatusItemController(appState: self)
+
+        DispatchQueue.main.async { [weak self] in
+            self?.openOrFocusMainPanel()
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self, name: .requestOpenMainPanel, object: nil)
+    }
+
+    @objc
+    private func handleRequestOpenMainPanelNotification() {
+        openOrFocusMainPanel()
+    }
+
+    func openOrFocusMainPanel() {
+        ensureMainPanelController().showAndFocus()
+    }
+
+    var statusBarIcon: NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size)
+        image.lockFocus()
+
+        let bounds = NSRect(origin: .zero, size: size).insetBy(dx: 2.2, dy: 2.2)
+        let strokeColor = NSColor.black
+
+        strokeColor.setStroke()
+
+        let outerCircle = NSBezierPath(ovalIn: bounds)
+        outerCircle.lineWidth = 1.6
+        outerCircle.stroke()
+
+        let horizontal = NSBezierPath()
+        horizontal.lineWidth = 1.2
+        horizontal.move(to: NSPoint(x: bounds.minX + 1.0, y: bounds.midY))
+        horizontal.line(to: NSPoint(x: bounds.maxX - 1.0, y: bounds.midY))
+        horizontal.stroke()
+
+        let vertical = NSBezierPath()
+        vertical.lineWidth = 1.2
+        vertical.move(to: NSPoint(x: bounds.midX, y: bounds.minY + 1.0))
+        vertical.line(to: NSPoint(x: bounds.midX, y: bounds.maxY - 1.0))
+        vertical.stroke()
+
+        let leftArc = NSBezierPath()
+        leftArc.lineWidth = 1.0
+        leftArc.move(to: NSPoint(x: bounds.midX, y: bounds.minY + 0.8))
+        leftArc.curve(
+            to: NSPoint(x: bounds.midX, y: bounds.maxY - 0.8),
+            controlPoint1: NSPoint(x: bounds.minX + bounds.width * 0.18, y: bounds.minY + bounds.height * 0.22),
+            controlPoint2: NSPoint(x: bounds.minX + bounds.width * 0.18, y: bounds.maxY - bounds.height * 0.22)
+        )
+        leftArc.stroke()
+
+        let rightArc = NSBezierPath()
+        rightArc.lineWidth = 1.0
+        rightArc.move(to: NSPoint(x: bounds.midX, y: bounds.minY + 0.8))
+        rightArc.curve(
+            to: NSPoint(x: bounds.midX, y: bounds.maxY - 0.8),
+            controlPoint1: NSPoint(x: bounds.maxX - bounds.width * 0.18, y: bounds.minY + bounds.height * 0.22),
+            controlPoint2: NSPoint(x: bounds.maxX - bounds.width * 0.18, y: bounds.maxY - bounds.height * 0.22)
+        )
+        rightArc.stroke()
+
+        image.unlockFocus()
+        image.isTemplate = true
+        return image
     }
 
     func refreshLoginItemStatus() {
@@ -1357,18 +1588,27 @@ final class TranslationAppState: ObservableObject {
         lastTriggerStatusMessage = accessibilityStatus == .granted ? "辅助功能权限已授权" : "请先授权辅助功能权限"
     }
 
+    func scheduleDeferredAccessibilityStatusRefresh(after delay: TimeInterval = 1.0) {
+        accessibilityStatusRefreshWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.refreshAccessibilityStatus()
+        }
+        accessibilityStatusRefreshWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
     func recheckAccessibilityStatus() {
         refreshAccessibilityStatus()
     }
 
-    func bootstrapOnLaunch() {
-        let granted = permissionService.requestAccess(prompt: false)
-        accessibilityStatus = granted ? .granted : .denied
-        if !granted {
-            _ = permissionService.requestAccess(prompt: true)
-            accessibilityStatus = permissionService.currentStatus()
-            lastTriggerStatusMessage = accessibilityStatus == .granted ? "辅助功能权限已授权" : "首次使用请授权辅助功能后重试"
+    private func ensureMainPanelController() -> MainPanelController {
+        if let mainPanelController {
+            return mainPanelController
         }
+
+        let controller = MainPanelController(appState: self)
+        mainPanelController = controller
+        return controller
     }
 
     func openAccessibilitySettings() {
@@ -1453,6 +1693,10 @@ final class TranslationAppState: ObservableObject {
     }
 
     private func handleLongPressTrigger() {
+        guard !shouldIgnoreTriggerForInternalAppInteraction() else {
+            return
+        }
+
         guard permissionService.currentStatus() == .granted else {
             accessibilityStatus = .denied
             lastTriggerStatusMessage = "触发失败：缺少辅助功能权限"
@@ -1513,6 +1757,7 @@ final class TranslationAppState: ObservableObject {
     }
 
     private func captureSelectionOnPressBegan() {
+        guard !shouldIgnoreTriggerForInternalAppInteraction() else { return }
         guard permissionService.currentStatus() == .granted else { return }
         switch selectionReader.readSelectedText() {
         case let .success(text):
@@ -1542,6 +1787,23 @@ final class TranslationAppState: ObservableObject {
             return false
         }
         return textView.hasMarkedText()
+    }
+
+    private func shouldIgnoreTriggerForInternalAppInteraction() -> Bool {
+        if statusItemController?.isMenuOpen == true {
+            return true
+        }
+
+        if NSApp.isActive {
+            return true
+        }
+
+        if let frontmostApplication = NSWorkspace.shared.frontmostApplication,
+           frontmostApplication.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+            return true
+        }
+
+        return false
     }
 
     private func ensurePanelController() -> TranslationPanelController {
@@ -2108,37 +2370,20 @@ struct SearchCommandField: NSViewRepresentable {
 
 struct MenuBarView: View {
     @ObservedObject var state: TranslationAppState
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("辅助功能：\(state.accessibilityStatus.displayName)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("状态：\(state.lastTriggerStatusMessage)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
             Button("打开主面板") {
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "main")
+                state.openOrFocusMainPanel()
             }
-            Button("请求辅助功能权限") {
-                state.requestAccessibilityAccess()
-            }
-            Button("读取当前选区") {
-                state.simulateTriggerForCurrentSelection()
-            }
-            Button("关闭悬浮窗") {
-                state.closeTranslationWindowIfAllowed()
-            }
-            .disabled(!state.windowState.isVisible)
             Button("退出") { NSApp.terminate(nil) }
         }
         .padding(12)
         .frame(width: 180)
         .onAppear {
-            state.bootstrapOnLaunch()
             state.refreshAccessibilityStatus()
         }
     }

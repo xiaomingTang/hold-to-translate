@@ -15,6 +15,8 @@ SIGN_IDENTITY_FILE="$ROOT_DIR/.build-signing-identity"
 SVG_ICON_SOURCE="$ROOT_DIR/assets/app-icon.svg"
 ICON_FILE_NAME="AppIcon"
 ICON_ICNS_PATH="$RESOURCES_DIR/${ICON_FILE_NAME}.icns"
+STATUS_BAR_ICON_FILE_NAME="StatusBarIconTemplate"
+STATUS_BAR_ICON_PATH="$RESOURCES_DIR/${STATUS_BAR_ICON_FILE_NAME}.png"
 
 generate_app_icon_if_possible() {
   if [[ ! -f "$SVG_ICON_SOURCE" ]]; then
@@ -51,6 +53,7 @@ generate_app_icon_if_possible() {
   done
 
   if iconutil -c icns "$iconset_dir" -o "$ICON_ICNS_PATH" >/dev/null 2>&1; then
+    sips -z 32 32 "$raster_png" --out "$STATUS_BAR_ICON_PATH" >/dev/null 2>&1 || true
     echo "[OK] Dock icon generated: $ICON_ICNS_PATH"
     rm -rf "$tmpdir"
     return 0
