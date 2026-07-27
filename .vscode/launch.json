@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:hold-to-translate}",
+      "name": "Debug hold-to-translate",
+      "target": "hold-to-translate",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug hold-to-translate"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:hold-to-translate}",
+      "name": "Release hold-to-translate",
+      "target": "hold-to-translate",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release hold-to-translate"
+    }
+  ]
+}
