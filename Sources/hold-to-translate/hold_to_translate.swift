@@ -2081,7 +2081,7 @@ struct TranslationDisplayPanel: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       VStack(alignment: .leading, spacing: 4) {
-        Text("原文")
+        Text("原文（双击原文即可编辑）")
           .font(.caption.weight(.semibold))
           .foregroundStyle(.secondary)
         Text(draft.originalText)
@@ -2095,7 +2095,7 @@ struct TranslationDisplayPanel: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
               .strokeBorder(Color.accentColor.opacity(0.18), lineWidth: 1)
           )
-          .help("双击原文即可编辑")
+          .help("双击即可编辑")
       }
       .contentShape(Rectangle())
       .simultaneousGesture(
@@ -2170,7 +2170,7 @@ struct EditingPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("编辑原文")
+      Text("编辑原文（ESC 取消，Cmd+Enter 提交）")
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
 
@@ -2192,10 +2192,6 @@ struct EditingPanel: View {
             isEditorFocused = true
           }
         }
-
-      Text("ESC 取消，Cmd+Enter 提交")
-        .font(.caption2)
-        .foregroundStyle(.secondary)
     }
   }
 }
