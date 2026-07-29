@@ -409,7 +409,7 @@ private struct ClipboardSnapshot {
 }
 
 final class AccessibilitySelectionReader {
-  func readSelectedText() -> SelectionReadResult {
+  func readSelectedText(includeClipboardFallback: Bool = true) -> SelectionReadResult {
     let systemWideElement = AXUIElementCreateSystemWide()
 
     guard var focusedAppElement = focusedApplicationElement(from: systemWideElement) else {
@@ -425,12 +425,16 @@ final class AccessibilitySelectionReader {
         let frontmostPid = frontmost.processIdentifier
         if Int(frontmostPid) != ProcessInfo.processInfo.processIdentifier {
           focusedAppElement = AXUIElementCreateApplication(frontmostPid)
-        } else if let clipboardSelectedText = readSelectedTextFromClipboardFallback() {
+        } else if includeClipboardFallback,
+          let clipboardSelectedText = readSelectedTextFromClipboardFallback()
+        {
           return .success(clipboardSelectedText)
         } else {
           return .failure("当前焦点在本应用窗口，请先点回目标应用后再长按触发")
         }
-      } else if let clipboardSelectedText = readSelectedTextFromClipboardFallback() {
+      } else if includeClipboardFallback,
+        let clipboardSelectedText = readSelectedTextFromClipboardFallback()
+      {
         return .success(clipboardSelectedText)
       } else {
         return .failure("当前焦点在本应用窗口，请先点回目标应用后再长按触发")
@@ -440,7 +444,9 @@ final class AccessibilitySelectionReader {
     guard
       let focusedElement = focusedUIElement(from: focusedAppElement, fallback: systemWideElement)
     else {
-      if let clipboardSelectedText = readSelectedTextFromClipboardFallback() {
+      if includeClipboardFallback,
+        let clipboardSelectedText = readSelectedTextFromClipboardFallback()
+      {
         return .success(clipboardSelectedText)
       }
       return .failure("无法获取焦点控件（目标应用可能未暴露可访问焦点，剪贴板兜底也未成功）")
@@ -454,7 +460,9 @@ final class AccessibilitySelectionReader {
       return .success(selectedText)
     }
 
-    if let clipboardSelectedText = readSelectedTextFromClipboardFallback() {
+    if includeClipboardFallback,
+      let clipboardSelectedText = readSelectedTextFromClipboardFallback()
+    {
       return .success(clipboardSelectedText)
     }
 
@@ -462,7 +470,10 @@ final class AccessibilitySelectionReader {
     if supported.isEmpty {
       return .failure("焦点控件未暴露可读选区（无可访问属性，剪贴板兜底也未成功）")
     }
-    return .failure("焦点控件未暴露可读选区（可用属性：\(supported.joined(separator: ", "))，剪贴板兜底也未成功）")
+    if includeClipboardFallback {
+      return .failure("焦点控件未暴露可读选区（可用属性：\(supported.joined(separator: ", "))，剪贴板兜底也未成功）")
+    }
+    return .failure("焦点控件未暴露可读选区（可用属性：\(supported.joined(separator: ", "))）")
   }
 
   private func focusedUIElement(
@@ -785,15 +796,24 @@ final class GlobalMouseHoldMonitor {
   private func scheduleTriggerIfNeeded() {
     cancelPendingTrigger()
     guard !hasTriggeredCurrentPress else { return }
+    let effectiveHoldDuration =
+      triggerButton == .right
+      ? max(minimumHoldDuration, 0.65)
+      : minimumHoldDuration
 
     let workItem = DispatchWorkItem { [weak self] in
       guard let self else { return }
+      // Some apps may swallow mouse-up while opening context menus.
+      // Only trigger if the configured button is still physically pressed.
+      guard self.isConfiguredButtonCurrentlyPressed() else {
+        return
+      }
       self.hasTriggeredCurrentPress = true
       self.onTriggered?()
     }
 
     pendingWorkItem = workItem
-    DispatchQueue.main.asyncAfter(deadline: .now() + minimumHoldDuration, execute: workItem)
+    DispatchQueue.main.asyncAfter(deadline: .now() + effectiveHoldDuration, execute: workItem)
   }
 
   private func scheduleSafetyReset() {
@@ -816,6 +836,19 @@ final class GlobalMouseHoldMonitor {
   private func cancelPendingTrigger() {
     pendingWorkItem?.cancel()
     pendingWorkItem = nil
+  }
+
+  private func isConfiguredButtonCurrentlyPressed() -> Bool {
+    let mouseButton: CGMouseButton
+    switch triggerButton {
+    case .left:
+      mouseButton = .left
+    case .right:
+      mouseButton = .right
+    case .middle:
+      mouseButton = CGMouseButton(rawValue: 2) ?? .center
+    }
+    return CGEventSource.buttonState(.combinedSessionState, button: mouseButton)
   }
 }
 
@@ -857,28 +890,32 @@ final class TranslationPanelController: NSWindowController, NSWindowDelegate {
     fatalError("init(coder:) has not been implemented")
   }
 
-  func showNearCursor() {
+  func showNearCursor(activateApp: Bool = true) {
     if !Thread.isMainThread {
       DispatchQueue.main.async { [weak self] in
-        self?.showNearCursor()
+        self?.showNearCursor(activateApp: activateApp)
       }
       return
     }
 
     guard let window else { return }
     applyPinning(to: window)
+    position(window: window, near: NSEvent.mouseLocation)
+
     NSApp.unhide(nil)
     NSRunningApplication.current.activate(options: [.activateAllWindows])
     NSApp.activate(ignoringOtherApps: true)
-    position(window: window, near: NSEvent.mouseLocation)
+
     window.orderFrontRegardless()
     window.makeKeyAndOrderFront(nil)
+
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
       self.applyPinning(to: window)
       NSRunningApplication.current.activate(options: [.activateAllWindows])
       window.orderFrontRegardless()
       window.makeKeyAndOrderFront(nil)
     }
+
     installDismissMonitors()
   }
 
@@ -1782,16 +1819,38 @@ final class TranslationAppState: NSObject, ObservableObject {
     lastTriggerStatusMessage = "已触发，正在读取选中文本"
 
     let selectedText: String
-    switch selectionReader.readSelectedText() {
-    case .success(let text):
-      selectedText = text
-    case .failure(let reason):
+    if settings.triggerButton == .right {
       if let preCapturedSelection = currentPreCapturedSelection() {
         selectedText = preCapturedSelection
-        lastTriggerStatusMessage = "焦点已变化，使用按下瞬间的选区"
       } else {
-        lastTriggerStatusMessage = "触发已忽略：\(reason)"
-        return
+        switch selectionReader.readSelectedText(includeClipboardFallback: false) {
+        case .success(let text):
+          selectedText = text
+        case .failure(let reason):
+          // For some apps (e.g. Chrome/VS Code), AX focus can be unavailable
+          // at trigger time; allow one clipboard fallback attempt to recover.
+          switch selectionReader.readSelectedText(includeClipboardFallback: true) {
+          case .success(let text):
+            selectedText = text
+            lastTriggerStatusMessage = "AX 读取失败，已使用剪贴板兜底读取选区"
+          case .failure:
+            lastTriggerStatusMessage = "触发已忽略：\(reason)"
+            return
+          }
+        }
+      }
+    } else {
+      switch selectionReader.readSelectedText() {
+      case .success(let text):
+        selectedText = text
+      case .failure(let reason):
+        if let preCapturedSelection = currentPreCapturedSelection() {
+          selectedText = preCapturedSelection
+          lastTriggerStatusMessage = "焦点已变化，使用按下瞬间的选区"
+        } else {
+          lastTriggerStatusMessage = "触发已忽略：\(reason)"
+          return
+        }
       }
     }
 
@@ -1823,9 +1882,8 @@ final class TranslationAppState: NSObject, ObservableObject {
     }
 
     windowState.show(with: selectedText)
-    NSApp.activate(ignoringOtherApps: true)
     let panelController = ensurePanelController()
-    panelController.showNearCursor()
+    panelController.showNearCursor(activateApp: settings.triggerButton != .right)
     lastTriggerStatusMessage = "已触发翻译请求"
     startTranslation(for: selectedText)
   }
@@ -1833,13 +1891,37 @@ final class TranslationAppState: NSObject, ObservableObject {
   private func captureSelectionOnPressBegan() {
     guard !shouldIgnoreTriggerForInternalAppInteraction() else { return }
     guard permissionService.currentStatus() == .granted else { return }
-    switch selectionReader.readSelectedText() {
+    switch selectionReader.readSelectedText(includeClipboardFallback: false) {
     case .success(let text):
       preCapturedSelection = text
       preCaptureAt = Date()
     case .failure:
+      if isVSCodeFrontmost() {
+        switch selectionReader.readSelectedText(includeClipboardFallback: true) {
+        case .success(let text):
+          preCapturedSelection = text
+          preCaptureAt = Date()
+          return
+        case .failure:
+          break
+        }
+      }
+
       preCapturedSelection = nil
       preCaptureAt = nil
+    }
+  }
+
+  private func isVSCodeFrontmost() -> Bool {
+    guard let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
+      return false
+    }
+
+    switch bundleIdentifier {
+    case "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.vscodium":
+      return true
+    default:
+      return false
     }
   }
 
@@ -1868,7 +1950,14 @@ final class TranslationAppState: NSObject, ObservableObject {
       return true
     }
 
-    if NSApp.isActive {
+    let panelVisible = panelController?.window?.isVisible == true
+    let mainPanelVisible = mainPanelController?.window?.isVisible == true
+    let hasOwnedKeyWindow = NSApp.windows.contains { window in
+      window.isVisible && window.isKeyWindow
+    }
+
+    // Ignore only while this app is actively interacting with its own UI.
+    if NSApp.isActive && (panelVisible || mainPanelVisible || hasOwnedKeyWindow) {
       return true
     }
 
