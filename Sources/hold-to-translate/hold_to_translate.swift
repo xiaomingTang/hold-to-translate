@@ -1450,6 +1450,15 @@ struct LaunchControlView: View {
           .padding(.vertical, 4)
         }
 
+        HStack {
+          Spacer()
+          Button("退出应用") {
+            NSApp.terminate(nil)
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(.red)
+        }
+
         Spacer(minLength: 0)
       }
     }
