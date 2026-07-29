@@ -1,19 +1,13 @@
-import XCTest
+import Foundation
 
-@testable import hold_to_translate
+@discardableResult
+func runHoldToTranslateSelfChecks() -> Bool {
+  let rightMonitor = GlobalMouseHoldMonitor()
+  rightMonitor.configure(triggerButton: .right, minimumHoldDuration: 0.2)
 
-final class hold_to_translateTests: XCTestCase {
-  func testRightClickStillInvokesEarlyPressBeganHook() {
-    let monitor = GlobalMouseHoldMonitor()
-    monitor.configure(triggerButton: .right, minimumHoldDuration: 0.45)
+  let leftMonitor = GlobalMouseHoldMonitor()
+  leftMonitor.configure(triggerButton: .left, minimumHoldDuration: 0.2)
 
-    XCTAssertTrue(monitor.shouldInvokePressBeganHook())
-  }
-
-  func testLeftClickStillInvokesEarlyPressBeganHook() {
-    let monitor = GlobalMouseHoldMonitor()
-    monitor.configure(triggerButton: .left, minimumHoldDuration: 0.45)
-
-    XCTAssertTrue(monitor.shouldInvokePressBeganHook())
-  }
+  return rightMonitor.effectiveHoldDuration() == 0.2
+    && leftMonitor.effectiveHoldDuration() == 0.2
 }

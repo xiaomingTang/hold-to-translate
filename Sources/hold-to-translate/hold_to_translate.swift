@@ -890,6 +890,10 @@ final class GlobalMouseHoldMonitor {
     true
   }
 
+  func effectiveHoldDuration() -> TimeInterval {
+    minimumHoldDuration
+  }
+
   private func matchesConfiguredButton(event: NSEvent) -> Bool {
     switch triggerButton {
     case .left:
@@ -905,10 +909,7 @@ final class GlobalMouseHoldMonitor {
   private func scheduleTriggerIfNeeded() {
     cancelPendingTrigger()
     guard !hasTriggeredCurrentPress else { return }
-    let effectiveHoldDuration =
-      triggerButton == .right
-      ? max(minimumHoldDuration, 1.0)
-      : minimumHoldDuration
+    let effectiveHoldDuration = effectiveHoldDuration()
 
     let workItem = DispatchWorkItem { [weak self] in
       guard let self else { return }
