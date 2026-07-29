@@ -406,6 +406,7 @@ enum SelectionReadResult {
 private struct ClipboardSnapshot {
   let items: [[(NSPasteboard.PasteboardType, Data)]]
   let changeCount: Int
+  let plainText: String?
 }
 
 final class AccessibilitySelectionReader {
@@ -731,13 +732,24 @@ final class AccessibilitySelectionReader {
     let deadline = Date().addingTimeInterval(1.0)
     let pasteboard = NSPasteboard.general
     while Date() < deadline {
-      if let selectedText = pasteboard.string(forType: .string)?.trimmingCharacters(
-        in: .whitespacesAndNewlines),
+      let currentChangeCount = pasteboard.changeCount
+      if currentChangeCount > clipboardSnapshot.changeCount,
+        let selectedText = pasteboard.string(forType: .string)?.trimmingCharacters(
+          in: .whitespacesAndNewlines),
         !selectedText.isEmpty
       {
-        // Some apps do not expose their selection through Accessibility, but the
-        // copy command still succeeds. Treat any non-empty clipboard content that
-        // appears shortly after the copy request as the newly copied selection.
+        // Only accept content after we observe clipboard mutation triggered by copy.
+        restoreClipboardSnapshot(clipboardSnapshot)
+        return selectedText
+      }
+
+      if let selectedText = pasteboard.string(forType: .string)?.trimmingCharacters(
+        in: .whitespacesAndNewlines),
+        !selectedText.isEmpty,
+        selectedText != clipboardSnapshot.plainText
+      {
+        // Some apps may not bump changeCount reliably; accept only when text differs
+        // from the pre-copy snapshot to avoid reusing stale clipboard content.
         restoreClipboardSnapshot(clipboardSnapshot)
         return selectedText
       }
@@ -759,7 +771,11 @@ final class AccessibilitySelectionReader {
         return (pasteboardType, data)
       }
     }
-    return ClipboardSnapshot(items: items, changeCount: pasteboard.changeCount)
+    return ClipboardSnapshot(
+      items: items,
+      changeCount: pasteboard.changeCount,
+      plainText: pasteboard.string(forType: .string)
+    )
   }
 
   private func restoreClipboardSnapshot(_ snapshot: ClipboardSnapshot) {
@@ -2058,25 +2074,13 @@ final class TranslationAppState: NSObject, ObservableObject {
     }
   }
 
-  private func isVSCodeFrontmost() -> Bool {
-    guard let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
-      return false
-    }
-
-    switch bundleIdentifier {
-    case "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.vscodium":
-      return true
-    default:
-      return false
-    }
-  }
-
   private func currentPreCapturedSelection() -> String? {
     guard let preCapturedSelection, let preCaptureAt else {
       return nil
     }
     let elapsed = Date().timeIntervalSince(preCaptureAt)
-    guard elapsed <= 1.5 else {
+    let maxCacheLifetime = max(1.5, (settings.longPressMilliseconds / 1000) + 0.8)
+    guard elapsed <= maxCacheLifetime else {
       self.preCapturedSelection = nil
       self.preCaptureAt = nil
       return nil
