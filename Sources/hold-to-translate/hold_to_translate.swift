@@ -444,6 +444,16 @@ final class AccessibilitySelectionReader {
     guard
       let focusedElement = focusedUIElement(from: focusedAppElement, fallback: systemWideElement)
     else {
+      if let discoveredElement = discoverTextElement(
+        from: focusedAppElement, fallback: systemWideElement)
+      {
+        if let selectedText = readSelectedTextAttribute(from: discoveredElement) {
+          return .success(selectedText)
+        }
+        if let selectedText = readSelectedTextFromRange(from: discoveredElement) {
+          return .success(selectedText)
+        }
+      }
       if includeClipboardFallback,
         let clipboardSelectedText = readSelectedTextFromClipboardFallback()
       {
@@ -458,6 +468,19 @@ final class AccessibilitySelectionReader {
 
     if let selectedText = readSelectedTextFromRange(from: focusedElement) {
       return .success(selectedText)
+    }
+
+    if let discoveredElement = discoverTextElement(
+      from: focusedAppElement,
+      fallback: systemWideElement,
+      preferred: focusedElement
+    ) {
+      if let selectedText = readSelectedTextAttribute(from: discoveredElement) {
+        return .success(selectedText)
+      }
+      if let selectedText = readSelectedTextFromRange(from: discoveredElement) {
+        return .success(selectedText)
+      }
     }
 
     if includeClipboardFallback,
@@ -506,6 +529,84 @@ final class AccessibilitySelectionReader {
       return nil
     }
     return (fallbackObject as! AXUIElement)
+  }
+
+  private func discoverTextElement(
+    from focusedAppElement: AXUIElement,
+    fallback systemWideElement: AXUIElement,
+    preferred: AXUIElement? = nil
+  ) -> AXUIElement? {
+    if let preferred, let discovered = findTextElement(in: preferred) {
+      return discovered
+    }
+
+    if let discovered = findTextElement(in: focusedAppElement) {
+      return discovered
+    }
+
+    return findTextElement(in: systemWideElement)
+  }
+
+  private func findTextElement(in root: AXUIElement) -> AXUIElement? {
+    var stack: [AXUIElement] = [root]
+
+    while let current = stack.popLast() {
+      if hasReadableSelection(on: current) {
+        return current
+      }
+
+      if let children = childElements(of: current) {
+        stack.append(contentsOf: children)
+      }
+    }
+
+    return nil
+  }
+
+  private func childElements(of element: AXUIElement) -> [AXUIElement]? {
+    var childrenRef: CFTypeRef?
+    let result = AXUIElementCopyAttributeValue(
+      element,
+      kAXChildrenAttribute as CFString,
+      &childrenRef
+    )
+    guard result == .success, let childrenRef else {
+      return nil
+    }
+    guard CFGetTypeID(childrenRef) == CFArrayGetTypeID() else {
+      return nil
+    }
+
+    let array = childrenRef as! CFArray
+    let count = CFArrayGetCount(array)
+    var children: [AXUIElement] = []
+    children.reserveCapacity(count)
+
+    for index in 0..<count {
+      let rawValue = CFArrayGetValueAtIndex(array, index)
+      guard let rawValue else {
+        continue
+      }
+      let element = unsafeBitCast(rawValue, to: AXUIElement.self)
+      children.append(element)
+    }
+
+    return children.isEmpty ? nil : children
+  }
+
+  private func hasReadableSelection(on element: AXUIElement) -> Bool {
+    if readSelectedTextAttribute(from: element) != nil {
+      return true
+    }
+    if readSelectedTextFromRange(from: element) != nil {
+      return true
+    }
+
+    let supported = supportedAttributeNames(of: element)
+    return supported.contains(where: {
+      $0 == kAXSelectedTextAttribute as String || $0 == kAXSelectedTextRangeAttribute as String
+        || $0 == kAXValueAttribute as String
+    })
   }
 
   private func supportedAttributeNames(of element: AXUIElement) -> [String] {
@@ -627,14 +728,16 @@ final class AccessibilitySelectionReader {
     let clipboardSnapshot = captureClipboardSnapshot()
     sendCopyShortcut()
 
-    let deadline = Date().addingTimeInterval(0.35)
+    let deadline = Date().addingTimeInterval(1.0)
+    let pasteboard = NSPasteboard.general
     while Date() < deadline {
-      let pasteboard = NSPasteboard.general
-      if pasteboard.changeCount != clipboardSnapshot.changeCount,
-        let selectedText = pasteboard.string(forType: .string)?.trimmingCharacters(
-          in: .whitespacesAndNewlines),
+      if let selectedText = pasteboard.string(forType: .string)?.trimmingCharacters(
+        in: .whitespacesAndNewlines),
         !selectedText.isEmpty
       {
+        // Some apps do not expose their selection through Accessibility, but the
+        // copy command still succeeds. Treat any non-empty clipboard content that
+        // appears shortly after the copy request as the newly copied selection.
         restoreClipboardSnapshot(clipboardSnapshot)
         return selectedText
       }
@@ -771,7 +874,9 @@ final class GlobalMouseHoldMonitor {
       // Keychain/auth prompts may swallow the matching mouse-up event.
       // Reset on every new press so the next long-press can always arm.
       hasTriggeredCurrentPress = false
-      onPressBegan?()
+      if shouldInvokePressBeganHook() {
+        onPressBegan?()
+      }
       scheduleTriggerIfNeeded()
       scheduleSafetyReset()
     } else {
@@ -779,6 +884,10 @@ final class GlobalMouseHoldMonitor {
       cancelSafetyReset()
       hasTriggeredCurrentPress = false
     }
+  }
+
+  func shouldInvokePressBeganHook() -> Bool {
+    true
   }
 
   private func matchesConfiguredButton(event: NSEvent) -> Bool {
@@ -798,7 +907,7 @@ final class GlobalMouseHoldMonitor {
     guard !hasTriggeredCurrentPress else { return }
     let effectiveHoldDuration =
       triggerButton == .right
-      ? max(minimumHoldDuration, 0.65)
+      ? max(minimumHoldDuration, 1.0)
       : minimumHoldDuration
 
     let workItem = DispatchWorkItem { [weak self] in
@@ -890,10 +999,10 @@ final class TranslationPanelController: NSWindowController, NSWindowDelegate {
     fatalError("init(coder:) has not been implemented")
   }
 
-  func showNearCursor(activateApp: Bool = true) {
+  func showNearCursor(activateApp: Bool = true, makeKey: Bool = true) {
     if !Thread.isMainThread {
       DispatchQueue.main.async { [weak self] in
-        self?.showNearCursor(activateApp: activateApp)
+        self?.showNearCursor(activateApp: activateApp, makeKey: makeKey)
       }
       return
     }
@@ -902,18 +1011,26 @@ final class TranslationPanelController: NSWindowController, NSWindowDelegate {
     applyPinning(to: window)
     position(window: window, near: NSEvent.mouseLocation)
 
-    NSApp.unhide(nil)
-    NSRunningApplication.current.activate(options: [.activateAllWindows])
-    NSApp.activate(ignoringOtherApps: true)
+    if activateApp {
+      NSApp.unhide(nil)
+      NSRunningApplication.current.activate(options: [.activateAllWindows])
+      NSApp.activate(ignoringOtherApps: true)
+    }
 
     window.orderFrontRegardless()
-    window.makeKeyAndOrderFront(nil)
+    if makeKey {
+      window.makeKeyAndOrderFront(nil)
+    }
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
       self.applyPinning(to: window)
-      NSRunningApplication.current.activate(options: [.activateAllWindows])
+      if activateApp {
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+      }
       window.orderFrontRegardless()
-      window.makeKeyAndOrderFront(nil)
+      if makeKey {
+        window.makeKeyAndOrderFront(nil)
+      }
     }
 
     installDismissMonitors()
@@ -1906,7 +2023,14 @@ final class TranslationAppState: NSObject, ObservableObject {
 
     windowState.show(with: selectedText)
     let panelController = ensurePanelController()
-    panelController.showNearCursor(activateApp: settings.triggerButton != .right)
+    panelController.showNearCursor(
+      activateApp: settings.triggerButton != .right,
+      makeKey: false
+    )
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+      panelController.window?.makeKeyAndOrderFront(nil)
+      NSApp.activate(ignoringOtherApps: true)
+    }
     lastTriggerStatusMessage = "已触发翻译请求"
     startTranslation(for: selectedText)
   }
@@ -1919,17 +2043,6 @@ final class TranslationAppState: NSObject, ObservableObject {
       preCapturedSelection = text
       preCaptureAt = Date()
     case .failure:
-      if isVSCodeFrontmost() {
-        switch selectionReader.readSelectedText(includeClipboardFallback: true) {
-        case .success(let text):
-          preCapturedSelection = text
-          preCaptureAt = Date()
-          return
-        case .failure:
-          break
-        }
-      }
-
       preCapturedSelection = nil
       preCaptureAt = nil
     }

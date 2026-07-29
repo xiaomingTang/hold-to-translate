@@ -1,8 +1,19 @@
-import Testing
+import XCTest
+
 @testable import hold_to_translate
 
-@Test func example() async throws {
-    // Write your test here and use APIs like `#expect(...)` to check expected conditions.
-    // Swift Testing Documentation
-    // https://developer.apple.com/documentation/testing
+final class hold_to_translateTests: XCTestCase {
+  func testRightClickStillInvokesEarlyPressBeganHook() {
+    let monitor = GlobalMouseHoldMonitor()
+    monitor.configure(triggerButton: .right, minimumHoldDuration: 0.45)
+
+    XCTAssertTrue(monitor.shouldInvokePressBeganHook())
+  }
+
+  func testLeftClickStillInvokesEarlyPressBeganHook() {
+    let monitor = GlobalMouseHoldMonitor()
+    monitor.configure(triggerButton: .left, minimumHoldDuration: 0.45)
+
+    XCTAssertTrue(monitor.shouldInvokePressBeganHook())
+  }
 }
