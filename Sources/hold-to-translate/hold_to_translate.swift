@@ -1380,12 +1380,35 @@ final class MainPanelController: NSWindowController, NSWindowDelegate {
       window.deminiaturize(nil)
     }
 
+    center(window: window, on: activeScreen())
+
     NSApp.setActivationPolicy(.regular)
     NSApp.unhide(nil)
     NSRunningApplication.current.activate(options: [.activateAllWindows])
     NSApp.activate(ignoringOtherApps: true)
     window.orderFrontRegardless()
     window.makeKeyAndOrderFront(nil)
+  }
+
+  private func activeScreen() -> NSScreen? {
+    let mouseLocation = NSEvent.mouseLocation
+    if let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) })
+    {
+      return screen
+    }
+    return NSScreen.main ?? NSScreen.screens.first
+  }
+
+  private func center(window: NSWindow, on screen: NSScreen?) {
+    let visibleFrame =
+      screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+      ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+    let frame = window.frame
+
+    let originX = visibleFrame.minX + (visibleFrame.width - frame.width) / 2
+    let originY = visibleFrame.minY + (visibleFrame.height - frame.height) / 2
+
+    window.setFrameOrigin(NSPoint(x: originX, y: originY))
   }
 
   func windowShouldClose(_ sender: NSWindow) -> Bool {
