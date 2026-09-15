@@ -1356,7 +1356,7 @@ struct LaunchControlView: View {
         GroupBox("应用设置") {
           VStack(alignment: .leading, spacing: 10) {
             Toggle(
-              "登录启动",
+              "开机自启动",
               isOn: Binding(
                 get: { state.loginAtLaunchEnabled },
                 set: { state.setLoginAtLaunchEnabled($0) }
@@ -1837,16 +1837,16 @@ final class TranslationAppState: NSObject, ObservableObject {
     do {
       if enabled {
         try service.register()
-        lastTriggerStatusMessage = "已开启登录启动"
+        lastTriggerStatusMessage = "已开启开机自启动"
       } else {
         try service.unregister()
-        lastTriggerStatusMessage = "已关闭登录启动"
+        lastTriggerStatusMessage = "已关闭开机自启动"
       }
       loginAtLaunchEnabled = isLoginItemEnabled()
     } catch {
       loginAtLaunchEnabled = isLoginItemEnabled()
       presentInfoAlert(
-        title: "登录启动设置失败",
+        title: "开机自启动设置失败",
         message: error.localizedDescription
       )
     }
