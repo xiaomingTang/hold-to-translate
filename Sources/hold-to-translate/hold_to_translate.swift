@@ -1302,7 +1302,8 @@ struct HoldToTranslateApp: App {
 
   var body: some Scene {
     Settings {
-      EmptyView()
+      LaunchControlView(state: appState)
+        .frame(width: 560, height: 420)
     }
   }
 }
@@ -1770,7 +1771,11 @@ final class TranslationAppState: NSObject, ObservableObject {
   }
 
   func openOrFocusMainPanel() {
-    ensureMainPanelController().showAndFocus()
+    NSApp.setActivationPolicy(.regular)
+    NSApp.unhide(nil)
+    NSRunningApplication.current.activate(options: [.activateAllWindows])
+    NSApp.activate(ignoringOtherApps: true)
+    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
   }
 
   var statusBarIcon: NSImage {
