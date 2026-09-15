@@ -112,12 +112,7 @@ resolve_sign_identity || {
   fi
 }
 
-swift build -c release --package-path "$ROOT_DIR"
-
-BUILD_DIR="$ROOT_DIR/.build/arm64-apple-macosx/release"
-if [[ ! -d "$BUILD_DIR" ]]; then
-  BUILD_DIR="$ROOT_DIR/.build/release"
-fi
+BUILD_DIR="$(swift build -c release --package-path "$ROOT_DIR" --show-bin-path)"
 
 BINARY_PATH="$BUILD_DIR/$BINARY_NAME"
 if [[ ! -f "$BINARY_PATH" ]]; then
