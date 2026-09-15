@@ -727,36 +727,31 @@ final class AccessibilitySelectionReader {
 
   private func readSelectedTextFromClipboardFallback() -> String? {
     let clipboardSnapshot = captureClipboardSnapshot()
-    sendCopyShortcut()
+    guard sendCopyShortcut() else {
+      return nil
+    }
 
     let deadline = Date().addingTimeInterval(1.0)
     let pasteboard = NSPasteboard.general
     while Date() < deadline {
       let currentChangeCount = pasteboard.changeCount
       if currentChangeCount > clipboardSnapshot.changeCount,
-        let selectedText = pasteboard.string(forType: .string)?.trimmingCharacters(
-          in: .whitespacesAndNewlines),
-        !selectedText.isEmpty
+        let selectedText = pasteboard.string(forType: .string),
+        !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       {
         // Only accept content after we observe clipboard mutation triggered by copy.
-        restoreClipboardSnapshot(clipboardSnapshot)
-        return selectedText
-      }
-
-      if let selectedText = pasteboard.string(forType: .string)?.trimmingCharacters(
-        in: .whitespacesAndNewlines),
-        !selectedText.isEmpty,
-        selectedText != clipboardSnapshot.plainText
-      {
-        // Some apps may not bump changeCount reliably; accept only when text differs
-        // from the pre-copy snapshot to avoid reusing stale clipboard content.
-        restoreClipboardSnapshot(clipboardSnapshot)
-        return selectedText
+        let observedChangeCount = currentChangeCount
+        let trimmedText = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        restoreClipboardSnapshotIfUnchanged(
+          clipboardSnapshot,
+          expectedChangeCount: observedChangeCount,
+          expectedPlainText: selectedText
+        )
+        return trimmedText
       }
       RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
     }
 
-    restoreClipboardSnapshot(clipboardSnapshot)
     return nil
   }
 
@@ -796,19 +791,38 @@ final class AccessibilitySelectionReader {
     }
   }
 
-  private func sendCopyShortcut() {
-    guard let source = CGEventSource(stateID: .hidSystemState) else {
+  private func restoreClipboardSnapshotIfUnchanged(
+    _ snapshot: ClipboardSnapshot,
+    expectedChangeCount: Int,
+    expectedPlainText: String
+  ) {
+    let pasteboard = NSPasteboard.general
+    guard pasteboard.changeCount == expectedChangeCount,
+      pasteboard.string(forType: .string) == expectedPlainText
+    else {
       return
+    }
+    restoreClipboardSnapshot(snapshot)
+  }
+
+  @discardableResult
+  private func sendCopyShortcut() -> Bool {
+    guard let source = CGEventSource(stateID: .hidSystemState) else {
+      return false
     }
 
     let keyCodeForC: CGKeyCode = 8
     let copyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCodeForC, keyDown: true)
     let copyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCodeForC, keyDown: false)
+    guard let copyDown, let copyUp else {
+      return false
+    }
 
-    copyDown?.flags = .maskCommand
-    copyUp?.flags = .maskCommand
-    copyDown?.post(tap: .cghidEventTap)
-    copyUp?.post(tap: .cghidEventTap)
+    copyDown.flags = .maskCommand
+    copyUp.flags = .maskCommand
+    copyDown.post(tap: .cghidEventTap)
+    copyUp.post(tap: .cghidEventTap)
+    return true
   }
 }
 
