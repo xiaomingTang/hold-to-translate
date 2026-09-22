@@ -112,6 +112,12 @@ resolve_sign_identity || {
   fi
 }
 
+APP_TARGET="/Applications/${APP_NAME}.app"
+
+if osascript -e 'tell application id "local.holdtotranslate.app" to quit' >/dev/null 2>&1; then
+  echo "[INFO] Requested ${APP_NAME} to quit before build."
+fi
+
 BUILD_DIR="$(swift build -c release --package-path "$ROOT_DIR" --show-bin-path)"
 
 BINARY_PATH="$BUILD_DIR/$BINARY_NAME"
@@ -173,7 +179,6 @@ else
 fi
 
 if [[ "$INSTALL_TO_APPLICATIONS" == "1" ]]; then
-  APP_TARGET="/Applications/${APP_NAME}.app"
   if [[ -d "$APP_TARGET" ]] && command -v rsync >/dev/null 2>&1; then
     rsync -a --delete "$APP_BUNDLE/" "$APP_TARGET/"
   else
