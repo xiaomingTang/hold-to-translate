@@ -21,7 +21,7 @@ final class MainPanelController: NSWindowController, NSWindowDelegate {
 
     let hostingView = NSHostingView(rootView: LaunchControlView(state: appState))
     let window = MainPanelWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 560, height: 550),
+      contentRect: NSRect(x: 0, y: 0, width: 560, height: 620),
       styleMask: [.titled, .closable, .miniaturizable, .resizable],
       backing: .buffered,
       defer: false
