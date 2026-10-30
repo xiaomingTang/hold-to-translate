@@ -74,14 +74,6 @@ struct LaunchControlView: View {
               "开机自启动",
               isOn: Binding(get: { state.loginAtLaunchEnabled }, set: state.setLoginAtLaunchEnabled)
             )
-            TextField(
-              "Endpoint",
-              text: Binding(get: { state.settings.endpoint }, set: { state.settings.endpoint = $0 })
-            )
-            SecureField("API Key", text: Binding(get: { state.apiKey }, set: { state.apiKey = $0 }))
-            TextField(
-              "Region",
-              text: Binding(get: { state.settings.region }, set: { state.settings.region = $0 }))
             languageRow(
               "目标语言",
               value: Binding(
@@ -92,19 +84,32 @@ struct LaunchControlView: View {
               value: Binding(
                 get: { state.settings.alternateLanguage },
                 set: { state.settings.alternateLanguage = $0 }))
-            Picker(
-              "触发键",
-              selection: Binding(
-                get: { state.settings.triggerButton }, set: { state.settings.triggerButton = $0 })
-            ) {
-              ForEach(TriggerButton.allCases) { Text($0.displayName).tag($0) }
-            }.pickerStyle(.segmented)
-            VStack(alignment: .leading) {
-              Text("长按时长：\(Int(state.settings.longPressMilliseconds)) ms")
+            HStack {
+              Text("触发键").foregroundStyle(.secondary)
+              Spacer()
+              Picker(
+                " ",
+                selection: Binding(
+                  get: { state.settings.triggerButton },
+                  set: { state.settings.triggerButton = $0 })
+              ) {
+                ForEach(TriggerButton.allCases) { Text($0.displayName).tag($0) }
+              }
+              .pickerStyle(.segmented)
+              .frame(width: 220)
+            }
+            HStack {
+              Text("长按时长").foregroundStyle(.secondary)
+              Spacer()
+              Text("\(Int(state.settings.longPressMilliseconds)) ms")
+                .foregroundStyle(.secondary)
+                .frame(width: 60, alignment: .trailing)
               Slider(
                 value: Binding(
                   get: { state.settings.longPressMilliseconds },
-                  set: { state.settings.longPressMilliseconds = $0 }), in: 200...1200, step: 50)
+                  set: { state.settings.longPressMilliseconds = $0 }), in: 200...1200, step: 50
+              )
+              .frame(width: 180)
             }
             thresholdRow(
               "警告阈值",
@@ -122,8 +127,32 @@ struct LaunchControlView: View {
               isHelpPresented: $isHardThresholdHelpPresented)
           }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
         } label: {
+          Text("应用设置")
+        }
+        GroupBox {
+          VStack(alignment: .leading, spacing: 10) {
+            textFieldRow(
+              "Endpoint",
+              placeholder: "Endpoint",
+              value: Binding(
+                get: { state.settings.endpoint }, set: { state.settings.endpoint = $0 }))
+            textFieldRow(
+              "Region",
+              placeholder: "Region",
+              value: Binding(get: { state.settings.region }, set: { state.settings.region = $0 }))
+            HStack {
+              Text("API Key").foregroundStyle(.secondary)
+              Spacer()
+              SecureField(
+                "API Key", text: Binding(get: { state.apiKey }, set: { state.apiKey = $0 })
+              )
+              .frame(width: 260)
+            }
+          }
+          .padding(.vertical, 4)
+        } label: {
           HStack(spacing: 4) {
-            Text("应用设置")
+            Text("API 配置")
             Button {
               isAPIKeyHelpPresented.toggle()
             } label: {
@@ -150,7 +179,18 @@ struct LaunchControlView: View {
       }
     }
     .padding(20)
+    .groupBoxStyle(SettingsGroupBoxStyle())
     .onAppear { state.refreshLoginItemStatus() }
+  }
+
+  private func textFieldRow(
+    _ title: String, placeholder: String, value: Binding<String>
+  ) -> some View {
+    HStack {
+      Text(title).foregroundStyle(.secondary)
+      Spacer()
+      TextField(placeholder, text: value).frame(width: 260)
+    }
   }
 
   private func languageRow(_ title: String, value: Binding<String>) -> some View {
@@ -184,6 +224,25 @@ struct LaunchControlView: View {
       }
       Spacer()
       TextField(title, value: value, formatter: integerInputFormatter).frame(width: 120)
+    }
+  }
+}
+
+private struct SettingsGroupBoxStyle: GroupBoxStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      configuration.label.font(.headline)
+      configuration.content
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(12)
+    .background(
+      RoundedRectangle(cornerRadius: 10)
+        .fill(Color(nsColor: .controlBackgroundColor))
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: 10)
+        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
     }
   }
 }
