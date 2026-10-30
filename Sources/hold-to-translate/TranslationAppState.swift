@@ -311,18 +311,18 @@ final class TranslationAppState: NSObject, ObservableObject {
     let target = resolvedTargetLanguage(for: text)
     let key = target + "::" + text.normalizedCacheKey()
     if let cached = translationCache.value(for: key) {
-      windowState.setTranslatedText(cached)
+      windowState.setTranslatedText(cached.translatedText, alternatives: cached.alternatives)
       lastTriggerStatusMessage = "命中缓存，已展示译文"
       return
     }
     windowState.draft?.isTranslating = true
     Task { @MainActor in
       do {
-        let translated = try await translationService.translate(
+        let result = try await translationService.translate(
           text: text, settings: settings, apiKey: effectiveApiKey(), targetLanguageOverride: target)
-        translationCache.insert(translated, for: key)
+        translationCache.insert(result, for: key)
         guard windowState.draft?.originalText == text else { return }
-        windowState.setTranslatedText(translated)
+        windowState.setTranslatedText(result.translatedText, alternatives: result.alternatives)
         lastTriggerStatusMessage = "翻译完成"
       } catch {
         windowState.setTranslationFailed()

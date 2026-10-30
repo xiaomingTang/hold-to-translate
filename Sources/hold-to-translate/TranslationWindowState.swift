@@ -16,7 +16,8 @@ struct TranslationWindowState: Equatable {
       originalText: draft.originalText,
       translatedText: draft.translatedText,
       isEditing: true,
-      editText: draft.originalText
+      editText: draft.originalText,
+      alternatives: draft.alternatives
     )
   }
 
@@ -34,7 +35,8 @@ struct TranslationWindowState: Equatable {
       originalText: draft.originalText,
       translatedText: draft.translatedText,
       isEditing: false,
-      editText: draft.originalText
+      editText: draft.originalText,
+      alternatives: draft.alternatives
     )
   }
 
@@ -48,8 +50,9 @@ struct TranslationWindowState: Equatable {
     beginEditing()
   }
 
-  mutating func setTranslatedText(_ text: String) {
+  mutating func setTranslatedText(_ text: String, alternatives: [DictionaryAlternative] = []) {
     draft?.translatedText = text
+    draft?.alternatives = alternatives
     draft?.isTranslating = false
   }
 

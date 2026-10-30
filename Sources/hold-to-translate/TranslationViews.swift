@@ -22,7 +22,7 @@ struct TranslationWindowView: View {
       .padding(10)
       .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .frame(minWidth: 420, idealWidth: 480, minHeight: 180, idealHeight: 260, maxHeight: 360)
+    .frame(minWidth: 420, idealWidth: 480, minHeight: 240, idealHeight: 320, maxHeight: 420)
   }
 }
 
@@ -75,6 +75,32 @@ struct TranslationDisplayPanel: View {
               }
               .buttonStyle(.borderless).foregroundStyle(isCopyConfirmed ? .green : .primary)
               .help(isCopyConfirmed ? "复制成功" : "复制译文")
+            }
+          }
+          if !draft.alternatives.isEmpty {
+            Divider()
+            VStack(alignment: .leading, spacing: 4) {
+              Text("其他释义").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+              ForEach(draft.alternatives) { alternative in
+                VStack(alignment: .leading, spacing: 1) {
+                  HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if !alternative.posTag.isEmpty {
+                      Text(alternative.posTag.lowercased())
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(
+                          Capsule().fill(Color.secondary.opacity(0.12))
+                        )
+                    }
+                    Text(alternative.displayText).textSelection(.enabled)
+                  }
+                  if !alternative.backTranslations.isEmpty {
+                    Text("回译：" + alternative.backTranslations.joined(separator: "、"))
+                      .font(.caption2).foregroundStyle(.tertiary)
+                  }
+                }
+              }
             }
           }
         }
